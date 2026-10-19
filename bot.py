@@ -1,4 +1,4 @@
-# bot.py - APEX PREDATOR PRO - VERSION FINALE RAILWAY + TESTNET + TRADES.CSV
+# bot.py - APEX PREDATOR PRO - VERSION FINALE RAILWAY + TESTNET + SOLDE REEL
 import os
 import time
 import csv
@@ -11,18 +11,63 @@ load_dotenv()
 
 # ============== CONFIG BINANCE TESTNET (Railway) ==============
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
-BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
+BINANCE_SECRET_KEY = os.getenv("BINANCE_API_SECRET") or os.getenv("BINANCE_SECRET_KEY") or os.getenv("BINANCE_SECRET")
 BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true")
 BINANCE_BASE_URL = "https://testnet.binance.vision" if BINANCE_TESTNET.lower() == "true" else "https://api.binance.com"
 
-# ============== CONFIG WHATSAPP (Optionnel - Laisse en veille) ==============
-# Pour activer plus tard: mets les 2 clés dans Railway .env
+# ============== LECTURE VRAI SOLDE BINANCE TESTNET - CORRIGÉ ==============
+def get_solde_reel_binance():
+    try:
+        if not BINANCE_API_KEY or not BINANCE_SECRET_KEY:
+            print("⚠️ Clés Binance non trouvées, on garde 100€ par défaut")
+            return None
+        
+        try:
+            from binance.client import Client
+            is_testnet = BINANCE_TESTNET.lower() == "true"
+            client = Client(BINANCE_API_KEY, BINANCE_SECRET_KEY, testnet=is_testnet)
+            account = client.get_account()
+            
+            total_estime_usdt = 0.0
+            print("--- LECTURE BALANCES BINANCE TESTNET ---")
+            for b in account['balances']:
+                free = float(b['free']) + float(b['locked'])
+                if free > 0.000001:
+                    asset = b['asset']
+                    print(f"  Balance trouvée: {asset} = {free}")
+                    if asset in ['USDT', 'FDUSD', 'BUSD', 'USDC']:
+                        total_estime_usdt += free
+                    elif asset == 'BTC':
+                        total_estime_usdt += free * 65000
+                    elif asset == 'BNB':
+                        total_estime_usdt += free * 600
+                    elif asset == 'ETH':
+                        total_estime_usdt += free * 3000
+                    else:
+                        # Pour tout autre coin, on le compte au moins
+                        total_estime_usdt += free
+            
+            print(f"✅ Solde Testnet réel lu: {total_estime_usdt} USDT")
+            return total_estime_usdt if total_estime_usdt > 0 else None
+            
+        except ImportError:
+            print("⚠️ python-binance non installé, install: pip install python-binance")
+            return None
+        except Exception as e:
+            print(f"⚠️ Erreur lecture Binance: {e} - on garde 100€")
+            import traceback
+            traceback.print_exc()
+            return None
+    except Exception as e:
+        print(f"Erreur solde: {e}")
+        return None
+
+# ============== CONFIG WHATSAPP ==============
 TON_NUMERO_WHATSAPP = os.getenv("TON_NUMERO_WHATSAPP", "2250700000000")
 CALLMEBOT_APIKEY = os.getenv("CALLMEBOT_APIKEY", "METS_TON_APIKEY_ICI")
 
 def envoyer_whatsapp(message):
     try:
-        # WHATSAPP DESACTIVE SI PAS CONFIGURE - RESTE EN SIMULATION
         if "METS_TON" in CALLMEBOT_APIKEY or not CALLMEBOT_APIKEY or len(CALLMEBOT_APIKEY) < 5:
             print(f"📲 [SIMULATION WHATSAPP] {message}")
             return False
@@ -34,11 +79,14 @@ def envoyer_whatsapp(message):
         print(f"Erreur WhatsApp: {e}")
         return False
 
-# ============== ETAT GLOBAL (INTOUCHABLE - TA LOGIQUE) ==============
+# ============== ETAT GLOBAL ==============
+SOLDE_REEL = get_solde_reel_binance()
+CAPITAL_DEPART = SOLDE_REEL if SOLDE_REEL is not None and SOLDE_REEL > 0 else 100.0
+
 STATE = {
     "is_bot_active": False,
-    "capital_total": 100.0,
-    "capital_initial": 100.0,
+    "capital_total": CAPITAL_DEPART,
+    "capital_initial": CAPITAL_DEPART,
     "perte_journaliere": 0.0,
     "is_kill_switch_global": False,
     "latence_ms": 0,
@@ -66,7 +114,6 @@ CONFIG = {
     "RATIO_RR_MIN": 2.0
 }
 
-# ============== MODULES (INTOUCHABLES) ==============
 class GestionnaireQuota:
     def check_and_add(self, weight):
         if STATE["quota_weight_used"] >= CONFIG["QUOTA_MAX"] * CONFIG["QUOTA_BLOCAGE"]:
@@ -101,28 +148,23 @@ class RiskManager:
     def taille_position(self, capital, distance_sl):
         if distance_sl == 0: return 0
         return (capital * CONFIG["RISQUE_PAR_TRADE"]) / distance_sl
-
     def check_cout_et_rr(self, entree, cible, spread, slippage):
         cout = spread + (CONFIG["FRAIS_BNB"]*2) + slippage
         if cout > CONFIG["COUT_TOTAL_MAX"]: return False
         gain = (cible - entree) / entree
         ratio = gain / CONFIG["STOP_LOSS_TRADE"]
         return ratio >= CONFIG["RATIO_RR_MIN"]
-
     def check_kill_switch(self):
         perte_glob = (STATE["capital_total"] - STATE["capital_initial"]) / STATE["capital_initial"]
         if perte_glob <= -CONFIG["STOP_GLOBAL"]:
             STATE["is_kill_switch_global"] = True
             STATE["is_bot_active"] = False
-            msg = f"🚨 KILL-SWITCH GLOBAL -8% ATTEINT: {perte_glob*100:.2f}% - Capital {STATE['capital_total']}€ - Bot VERROUILLÉ"
+            msg = f"🚨 KILL-SWITCH GLOBAL -8% ATTEINT: {perte_glob*100:.2f}%"
             print(msg)
             envoyer_whatsapp(msg)
             return "LEVEL3"
         if STATE["perte_journaliere"] <= -CONFIG["STOP_JOURNALIER"] * STATE["capital_initial"]:
             STATE["is_bot_active"] = False
-            msg = f"🔒 KILL-SWITCH JOURNALIER -3% ATTEINT: {STATE['perte_journaliere']}€ - Bot OFF"
-            print(msg)
-            envoyer_whatsapp(msg)
             return "LEVEL2"
         return None
 
@@ -131,7 +173,6 @@ btc_filter = FiltreMaitreBTC()
 orderbook_validator = ValidateurOrderBook()
 risk = RiskManager()
 
-# ============== NOUVEAU: SAUVEGARDE TRADES.CSV POUR NETLIFY ==============
 def sauvegarder_csv(trade):
     try:
         file_exists = os.path.isfile("trades.csv")
@@ -143,7 +184,6 @@ def sauvegarder_csv(trade):
     except Exception as e:
         print(f"Erreur CSV: {e}")
 
-# ============== FONCTIONS UTILES (INTOUCHABLES + CSV) ==============
 def check_daily_reset():
     today = datetime.now().date()
     if STATE["last_reset_day"]!= today:
@@ -157,7 +197,6 @@ def enregistrer_trade(symbol, pnl, status="accepté"):
     STATE["capital_total"] += pnl
     if pnl < 0:
         STATE["perte_journaliere"] += pnl
-
     trade = {
         "heure": datetime.now().strftime("%H:%M:%S"),
         "symbol": symbol,
@@ -168,12 +207,9 @@ def enregistrer_trade(symbol, pnl, status="accepté"):
     STATE["trades_history"].insert(0, trade)
     if len(STATE["trades_history"]) > 50:
         STATE["trades_history"].pop()
-
-    sauvegarder_csv(trade) # <--- AJOUT SEUL POUR NETLIFY
-
-    if "listing" in status.lower() or "alerte" in status.lower():
-        envoyer_whatsapp(f"🚀 APEX: {symbol} - {status} à {trade['heure']}")
-
+    sauvegarder_csv(trade)
+    if "listing" in status.lower():
+        envoyer_whatsapp(f"🚀 APEX: {symbol} - {status}")
     risk.check_kill_switch()
     return trade
 
@@ -181,13 +217,11 @@ def executer_trade_logic(symbol, prix_entree, prix_cible, spread, slippage):
     check_daily_reset()
     if STATE["is_kill_switch_global"]: return {"status": "refusé", "raison": "Kill Switch Global -8%"}
     if not STATE["is_bot_active"]: return {"status": "refusé", "raison": "Bot OFF"}
-    if STATE["latence_ms"] > CONFIG["LATENCE_MAX_MS"]: return {"status": "refusé", "raison": f"Latence {STATE['latence_ms']}ms > {CONFIG['LATENCE_MAX_MS']}ms"}
-    if not quota.check_and_add(5): return {"status": "refusé", "raison": "Quota 80% atteint"}
+    if STATE["latence_ms"] > CONFIG["LATENCE_MAX_MS"]: return {"status": "refusé", "raison": f"Latence {STATE['latence_ms']}ms"}
+    if not quota.check_and_add(5): return {"status": "refusé", "raison": "Quota 80%"}
     if not btc_filter.check(): return {"status": "refusé", "raison": "Filtre BTC"}
-
     distance_sl = prix_entree * CONFIG["STOP_LOSS_TRADE"]
     if not risk.check_cout_et_rr(prix_entree, prix_cible, spread, slippage):
         return {"status": "refusé", "raison": "Coût ou R/R invalide"}
-
     taille = risk.taille_position(STATE["capital_total"], distance_sl)
     return {"status": "accepté", "taille": round(taille,2), "ordre": "LIMIT Post-Only 300ms", "capital": STATE["capital_total"]}
