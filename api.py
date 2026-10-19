@@ -1,30 +1,46 @@
-# api.py - APEX PREDATOR - VERSION FINALE PRO AVEC WHATSAPP - ANTI-500
+# api.py - APEX PREDATOR - VERSION FINALE RAILWAY + TESTNET + ANTI-500
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
+import csv
+from dotenv import load_dotenv
 import bot
 import listing_watcher
 import traceback
+
+load_dotenv()
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/")
-def root(): return {"message": "APEX API OK"}
+def root(): 
+    return {
+        "message": "APEX API OK", 
+        "testnet": os.getenv("BINANCE_TESTNET","true"),
+        "binance_url": bot.BINANCE_BASE_URL
+    }
 
 @app.get("/status")
 def get_status():
     return {"is_active": bot.STATE["is_bot_active"], "is_locked": bot.STATE["is_kill_switch_global"], "capital": bot.STATE["capital_total"], "perte_jour": bot.STATE["perte_journaliere"], "latence": bot.STATE["latence_ms"], "quota": bot.STATE["quota_weight_used"]}
 
+# ============== BALANCE REEL TESTNET ==============
 @app.get("/balance")
-def get_balance(): return {"total": bot.STATE["capital_total"]}
+def get_balance(): 
+    return {"total": bot.STATE["capital_total"]}
 @app.get("/solde")
-def get_solde(): return {"solde": bot.STATE["capital_total"], "total": bot.STATE["capital_total"]}
+def get_solde(): 
+    return {"solde": bot.STATE["capital_total"], "total": bot.STATE["capital_total"]}
 @app.get("/account")
-def get_account(): return {"total": bot.STATE["capital_total"]}
+def get_account(): 
+    return {"total": bot.STATE["capital_total"]}
 @app.get("/balances")
-def get_balances(): return {"total": bot.STATE["capital_total"]}
+def get_balances(): 
+    return {"total": bot.STATE["capital_total"]}
 @app.get("/portfolio")
-def get_portfolio(): return {"total": bot.STATE["capital_total"]}
+def get_portfolio(): 
+    return {"total": bot.STATE["capital_total"]}
 
 @app.post("/bot/toggle")
 def toggle_bot():
@@ -54,6 +70,21 @@ def executer_trade(symbol: str, prix_entree: float, prix_cible: float, spread: f
 def get_history():
     return {"history": bot.STATE["trades_history"]}
 
+# NOUVEAU: Pour Netlify lire trades.csv direct
+@app.get("/trades")
+def get_trades_csv():
+    try:
+        if not os.path.exists("trades.csv"):
+            return {"trades": []}
+        trades = []
+        with open("trades.csv", "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                trades.insert(0, row)
+        return {"trades": trades[:50]}
+    except Exception as e:
+        return {"trades": [], "erreur": str(e)}
+
 @app.get("/debug/perte")
 def debug_perte(montant: float):
     trade = bot.enregistrer_trade("TEST", montant, "test-securite")
@@ -68,7 +99,6 @@ def debug_reset():
     bot.STATE["trades_history"] = []
     return {"message": "RESET OK - 100€"}
 
-# ROUTE CORRIGÉE ANTI-500
 @app.get("/debug/annonce-test")
 def test_annonce():
     try:
@@ -78,7 +108,6 @@ def test_annonce():
         print("ERREUR annonce-test:", traceback.format_exc())
         return {"nouveau": False, "message": "Surveilleur OK mais Binance a bloqué", "erreur_detail": str(e)}
 
-# ROUTE WHATSAPP CORRIGÉE ANTI-500
 @app.get("/debug/whatsapp")
 def test_whatsapp():
     try:

@@ -1,16 +1,29 @@
-# bot.py - APEX PREDATOR PRO - VERSION FINALE AVEC WHATSAPP
+# bot.py - APEX PREDATOR PRO - VERSION FINALE RAILWAY + TESTNET + TRADES.CSV
+import os
 import time
+import csv
 import requests
 from collections import deque
 from datetime import datetime
+from dotenv import load_dotenv
 
-# ============== CONFIG WHATSAPP ==============
-TON_NUMERO_WHATSAPP = "2250700000000" # << METS TON NUMÉRO ICI sans + ex: 22507...
-CALLMEBOT_APIKEY = "METS_TON_APIKEY_ICI" # << Tu le reçois sur CallMeBot
+load_dotenv()
+
+# ============== CONFIG BINANCE TESTNET (Railway) ==============
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
+BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true")
+BINANCE_BASE_URL = "https://testnet.binance.vision" if BINANCE_TESTNET.lower() == "true" else "https://api.binance.com"
+
+# ============== CONFIG WHATSAPP (Optionnel - Laisse en veille) ==============
+# Pour activer plus tard: mets les 2 clés dans Railway .env
+TON_NUMERO_WHATSAPP = os.getenv("TON_NUMERO_WHATSAPP", "2250700000000")
+CALLMEBOT_APIKEY = os.getenv("CALLMEBOT_APIKEY", "METS_TON_APIKEY_ICI")
 
 def envoyer_whatsapp(message):
     try:
-        if "METS_TON" in CALLMEBOT_APIKEY or "METS_TON" in TON_NUMERO_WHATSAPP:
+        # WHATSAPP DESACTIVE SI PAS CONFIGURE - RESTE EN SIMULATION
+        if "METS_TON" in CALLMEBOT_APIKEY or not CALLMEBOT_APIKEY or len(CALLMEBOT_APIKEY) < 5:
             print(f"📲 [SIMULATION WHATSAPP] {message}")
             return False
         url = f"https://api.callmebot.com/whatsapp.php?phone={TON_NUMERO_WHATSAPP}&text={message}&apikey={CALLMEBOT_APIKEY}"
@@ -21,7 +34,7 @@ def envoyer_whatsapp(message):
         print(f"Erreur WhatsApp: {e}")
         return False
 
-# ============== ETAT GLOBAL ==============
+# ============== ETAT GLOBAL (INTOUCHABLE - TA LOGIQUE) ==============
 STATE = {
     "is_bot_active": False,
     "capital_total": 100.0,
@@ -53,7 +66,7 @@ CONFIG = {
     "RATIO_RR_MIN": 2.0
 }
 
-# ============== MODULES ==============
+# ============== MODULES (INTOUCHABLES) ==============
 class GestionnaireQuota:
     def check_and_add(self, weight):
         if STATE["quota_weight_used"] >= CONFIG["QUOTA_MAX"] * CONFIG["QUOTA_BLOCAGE"]:
@@ -118,7 +131,19 @@ btc_filter = FiltreMaitreBTC()
 orderbook_validator = ValidateurOrderBook()
 risk = RiskManager()
 
-# ============== FONCTIONS UTILES ==============
+# ============== NOUVEAU: SAUVEGARDE TRADES.CSV POUR NETLIFY ==============
+def sauvegarder_csv(trade):
+    try:
+        file_exists = os.path.isfile("trades.csv")
+        with open("trades.csv", "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["heure","symbol","pnl","capital","status"])
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(trade)
+    except Exception as e:
+        print(f"Erreur CSV: {e}")
+
+# ============== FONCTIONS UTILES (INTOUCHABLES + CSV) ==============
 def check_daily_reset():
     today = datetime.now().date()
     if STATE["last_reset_day"]!= today:
@@ -144,7 +169,8 @@ def enregistrer_trade(symbol, pnl, status="accepté"):
     if len(STATE["trades_history"]) > 50:
         STATE["trades_history"].pop()
 
-    # Notif WhatsApp pour les nouveaux listings
+    sauvegarder_csv(trade) # <--- AJOUT SEUL POUR NETLIFY
+
     if "listing" in status.lower() or "alerte" in status.lower():
         envoyer_whatsapp(f"🚀 APEX: {symbol} - {status} à {trade['heure']}")
 
